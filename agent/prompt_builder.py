@@ -37,6 +37,9 @@ Rules:
 - "spam" means move_email with destination="spam"
 - Always return JSON.
 - Always include reasoning.
+- If you decide an action is needed, you MUST include it in the actions array.
+- Reasoning without actions is considered invalid output.
+
 """
 
 
@@ -50,10 +53,16 @@ def build_agent_prompt(
     record = PromptRecord(run_id=run_id)
 
     system_prompt = (
-        "You are an email assistant. "
-        "You must output JSON only. "
-        "Follow the agent protocol strictly."
-    )
+    "You are an email assistant operating under a strict action protocol.\n"
+    "You MUST output valid JSON.\n"
+    "You MUST include an 'actions' field.\n"
+    "If the user intent implies an operation (delete, archive, spam, reply, create, send), "
+    "you MUST produce at least one executable action.\n"
+    "Natural language reasoning alone is NOT sufficient.\n"
+    "If and only if required information is missing, use the 'clarify' action.\n"
+    "Do NOT explain actions in prose without emitting them.\n"
+)
+
 
     record.add(role="system", source="agent", content=system_prompt)
 
