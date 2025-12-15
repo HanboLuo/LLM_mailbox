@@ -27,7 +27,7 @@ class HistoryTurn(BaseModel):
     role: Role
     content: str
 
-ActionType = Literal["reply", "mark_read", "create_email", "send_email", "move_email", "clarify"]
+ActionType = Literal["reply", "mark_read", "mark_unread", "create_email", "send_email", "move_email", "clarify"]
 MoveDestination = Literal["inbox", "archive", "trash", "spam"]
 
 class AgentAction(BaseModel):

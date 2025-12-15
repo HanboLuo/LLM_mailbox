@@ -88,6 +88,14 @@ def _normalize_v14(
                 "payload": {"email_id": p.get("email_id") or email_id},
             })
 
+        # ---------- mark unread ----------
+        elif t == "mark_unread":
+            normalized_actions.append({
+                "type": "mark_unread",
+                "payload": {"email_id": p.get("email_id") or email_id},
+            })
+
+
         # ---------- create email ----------
         elif t == "create_email":
             normalized_actions.append({
@@ -159,7 +167,7 @@ def _normalize_v14(
 
     # only fallback if there is truly NOTHING actionable
     has_effect = any(
-        a["type"] in ("reply", "move_email", "mark_read", "create_email", "send_email")
+        a["type"] in ("reply", "move_email", "mark_read", "mark_unread", "create_email", "send_email")
         for a in normalized_actions
     )
 

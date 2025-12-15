@@ -77,7 +77,7 @@ def build_agent_prompt(
         "You are an email assistant operating under a strict action protocol.\n"
         "You MUST output valid JSON only.\n"
         "You MUST include an 'actions' field.\n"
-        "If the user intent implies an operation (delete, archive, spam, reply, create, send, mark read), "
+        "If the user intent implies an operation (delete, archive, spam, reply, create, send, mark read, mark unread), "
         "you MUST produce at least one executable action.\n"
         "Natural language reasoning alone is NOT sufficient.\n"
         "If and only if required information is missing, use the 'clarify' action.\n"
