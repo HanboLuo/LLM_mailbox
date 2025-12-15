@@ -215,6 +215,18 @@ def _normalize_v14(
         },
     })
 
+    if reasoning:
+        logs.append({
+            "ts": _ts(),
+            "source": "agent",
+            "action": "reasoning_dump",
+            "email_id": email_id,
+            "details": {
+                "reasoning": reasoning,
+            },
+        })
+
+
     return {
         "engine": engine,
         "actions": normalized_actions,
