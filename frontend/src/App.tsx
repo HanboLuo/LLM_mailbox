@@ -53,7 +53,7 @@ export default function App() {
     setEmails((prev) => prev.map((e) => (e.id === id ? { ...e, unread: false } : e)));
   }
 
-  function moveEmail(id: string, destination: "archive" | "trash" | "spam") {
+  function moveEmail(id: string, destination: "inbox" | "archive" | "trash" | "spam") {
     setEmails((prev) =>
       prev.map((e) => {
         if (e.id !== id) return e;

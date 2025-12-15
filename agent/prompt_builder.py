@@ -23,7 +23,8 @@ Allowed actions (EXACT types):
   note: only drafts can be sent
 
 - move_email
-  payload: { "email_id": string, "destination": "archive" | "trash" | "spam" }
+  payload: { "email_id": string, "destination": "inbox" | "archive" | "trash" | "spam" }
+- "move to inbox" or "restore" means move_email with destination="inbox"
 
 - clarify
   payload: { "question": string }
