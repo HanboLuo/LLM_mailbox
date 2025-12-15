@@ -1,213 +1,249 @@
+from typing import Any, Dict, List, Optional
 import json
 import os
-from typing import Any, Dict, List, Optional
-
 import requests
+from datetime import datetime
 
+from agent.prompt_builder import build_agent_prompt
 from agent.mock_agent import run_agent as run_mock_agent
 
 
 DEEPSEEK_API_KEY = os.getenv("DEEPSEEK_API_KEY")
 DEEPSEEK_API_URL = os.getenv("DEEPSEEK_API_URL", "https://api.deepseek.com/v1/chat/completions")
 DEEPSEEK_MODEL = os.getenv("DEEPSEEK_MODEL", "deepseek-chat")
-print("Using model:",DEEPSEEK_MODEL)
+
+
+def _ts() -> str:
+    return datetime.utcnow().isoformat() + "Z"
+
 
 def _safe_json_extract(text: str) -> Optional[Dict[str, Any]]:
     """
-    Try to parse JSON. If model returns extra text, attempt to extract the first {...} block.
+    Extract JSON from model output safely.
     """
     try:
         return json.loads(text)
     except Exception:
         pass
 
-    # try to extract substring between first { and last }
     start = text.find("{")
     end = text.rfind("}")
     if start != -1 and end != -1 and end > start:
-        candidate = text[start : end + 1]
         try:
-            return json.loads(candidate)
+            return json.loads(text[start : end + 1])
         except Exception:
             return None
+
     return None
 
 
-def _normalize_result(result: Dict[str, Any], email: Dict[str, Any]) -> Dict[str, Any]:
+def _normalize_v14(
+    *,
+    raw: Dict[str, Any],
+    email: Dict[str, Any],
+    engine: str,
+    prompt_record: Dict[str, Any],
+) -> Dict[str, Any]:
     """
-    Normalize to v1.2 protocol:
-    {
-      actions: [{type, payload}, ...],
-      reasoning: [..]
-    }
+    Normalize agent output to v1.4 protocol.
     """
-    reasoning = result.get("reasoning") or []
-    actions = result.get("actions") or []
-
-    # Back-compat: if returned single {action, reply/...}
-    if not actions and "action" in result:
-        single = result["action"]
-        payload = {}
-        if single == "reply":
-            payload = {"draft": result.get("reply") or result.get("content") or ""}
-        actions = [{"type": single, "payload": payload}]
-
-    # Ensure types and required payload fields
-    normalized: List[Dict[str, Any]] = []
     email_id = email.get("id")
+
+    actions = raw.get("actions") or []
+    reasoning = raw.get("reasoning") or []
+    logs = raw.get("logs") or []
+
+    normalized_actions: List[Dict[str, Any]] = []
 
     for a in actions:
         t = a.get("type")
         p = a.get("payload") or {}
 
         if t == "reply":
-            # draft text
-            draft = p.get("draft") or p.get("body") or p.get("content") or ""
-            normalized.append({"type": "reply", "payload": {"draft": draft}})
+            normalized_actions.append({
+                "type": "reply",
+                "payload": {"draft": p.get("draft", "")},
+            })
 
         elif t == "mark_read":
-            normalized.append({"type": "mark_read", "payload": {"email_id": email_id}})
-
-        elif t == "delete_email":
-            # default delete current email
-            normalized.append({"type": "delete_email", "payload": {"email_id": p.get("email_id") or email_id}})
+            normalized_actions.append({
+                "type": "mark_read",
+                "payload": {"email_id": p.get("email_id") or email_id},
+            })
 
         elif t == "create_email":
-            # create draft email
-            normalized.append(
-                {
-                    "type": "create_email",
-                    "payload": {
-                        "to": p.get("to", ""),
-                        "subject": p.get("subject", ""),
-                        "body": p.get("body", ""),
-                    },
-                }
-            )
+            normalized_actions.append({
+                "type": "create_email",
+                "payload": {
+                    "to": p.get("to", ""),
+                    "subject": p.get("subject", ""),
+                    "body": p.get("body", ""),
+                },
+            })
+
+        elif t == "send_email":
+            normalized_actions.append({
+                "type": "send_email",
+                "payload": {"email_id": p.get("email_id") or email_id},
+            })
+
+        elif t == "move_email":
+            dest = p.get("destination", "archive")
+            if dest not in ("archive", "trash", "spam"):
+                dest = "archive"
+            normalized_actions.append({
+                "type": "move_email",
+                "payload": {
+                    "email_id": p.get("email_id") or email_id,
+                    "destination": dest,
+                },
+            })
 
         elif t == "clarify":
-            normalized.append({"type": "clarify", "payload": {"question": p.get("question", "Could you clarify?")}})
+            normalized_actions.append({
+                "type": "clarify",
+                "payload": {"question": p.get("question", "Could you clarify?")},
+            })
 
-    # If model produced nothing, clarify
-    if not normalized:
-        normalized = [{"type": "clarify", "payload": {"question": "I’m not sure what you want me to do. Could you clarify?"}}]
+    if not normalized_actions:
+        normalized_actions = [{
+            "type": "clarify",
+            "payload": {"question": "I am not sure what to do. Could you clarify?"},
+        }]
+        reasoning.append("No valid actions produced. Fallback to clarify.")
 
-    return {"actions": normalized, "reasoning": reasoning}
+    logs.append({
+        "ts": _ts(),
+        "source": "system",
+        "action": "engine_used",
+        "email_id": email_id,
+        "details": {
+            "engine": engine,
+            "model": DEEPSEEK_MODEL if engine == "deepseek" else "mock",
+        },
+    })
+
+    return {
+        "engine": engine,
+        "actions": normalized_actions,
+        "reasoning": reasoning,
+        "logs": logs,
+        "prompt_record": prompt_record,
+    }
 
 
-def run_agent(email: Dict[str, Any], user_instruction: str, history: List[Dict[str, str]] | None = None) -> Dict[str, Any]:
+def run_agent(
+    *,
+    email: Dict[str, Any],
+    user_instruction: str,
+    history: Optional[List[Dict[str, str]]] = None,
+) -> Dict[str, Any]:
     """
-    v1.2 agent:
-    - If DEEPSEEK_API_KEY exists: call DeepSeek
-    - else: fallback to mock agent
+    v1.4 Agent:
+    - PromptBuilder is the ONLY prompt source
+    - PromptRecord is always returned
     """
     history = history or []
 
-    # Always include minimal reasoning steps locally
-    base_reasoning: List[str] = []
-    if email.get("unread"):
-        base_reasoning.append("Email is unread")
-    base_reasoning.append(f"User instruction: {user_instruction}")
-
-    if not DEEPSEEK_API_KEY:
-        mock = run_mock_agent(email=email, user_instruction=user_instruction, history=history)
-        # merge reasoning
-        merged = {"actions": mock.get("actions", []), "reasoning": base_reasoning + (mock.get("reasoning") or [])}
-        return _normalize_result(merged, email)
-
-    system = (
-        "You are an email assistant. "
-        "You MUST output JSON only. "
-        "You can decide multiple actions. "
-        "Be concise and professional."
+    # ---------- Build prompt (唯一入口) ----------
+    built = build_agent_prompt(
+        email=email,
+        user_instruction=user_instruction,
+        history=history,
     )
 
-    # We feed history for multi-turn
-    messages = [{"role": "system", "content": system}]
+    system_prompt = built["system_prompt"]
+    final_prompt = built["final_prompt"]
+    prompt_record = built["prompt_record"].export()
 
-    # Past turns
-    for t in history:
-        r = t.get("role")
-        c = t.get("content")
-        if r in ("user", "assistant", "system") and isinstance(c, str):
-            messages.append({"role": r, "content": c})
+    # ---------- No LLM key: fallback ----------
+    if not DEEPSEEK_API_KEY:
+        mock = run_mock_agent(
+            email=email,
+            user_instruction=user_instruction,
+            history=history,
+        )
+        return _normalize_v14(
+            raw=mock,
+            email=email,
+            engine="mock",
+            prompt_record=prompt_record,
+        )
 
-    prompt = f"""
-Email context:
-- id: {email.get("id")}
-- from: {email.get("from")}
-- to: {email.get("to", "")}
-- subject: {email.get("subject")}
-- folder: {email.get("folder")}
-- unread: {email.get("unread")}
-- body:
-{email.get("body")}
+    # ---------- Call DeepSeek ----------
+    messages = [
+        {"role": "system", "content": system_prompt},
+        {"role": "user", "content": final_prompt},
+    ]
 
-User instruction:
-{user_instruction}
-
-Decide one or more actions from:
-- reply (payload: {{ "draft": "..." }})
-- mark_read (payload: {{ "email_id": "{email.get("id")}" }})
-- create_email (payload: {{ "to": "...", "subject": "...", "body": "..." }})  # create a DRAFT
-- delete_email (payload: {{ "email_id": "{email.get("id")}" }})              # move to trash
-- clarify (payload: {{ "question": "..." }})
-
-Rules:
-- If user asks to write a new email to someone, use create_email.
-- If user asks to remove/discard/delete, use delete_email.
-- If user asks to reply to this email, use reply.
-- If user indicates they’ve read it or wants to mark it, use mark_read.
-- If missing critical info (recipient, time, etc.), use clarify.
-- You MAY include multiple actions (e.g., reply + mark_read).
-- Always include reasoning as a list of bullet-like strings.
-
-Return JSON ONLY in this exact format:
-{{
-  "actions": [
-    {{ "type": "...", "payload": {{ ... }} }}
-  ],
-  "reasoning": ["...", "..."]
-}}
-""".strip()
-
-    messages.append({"role": "user", "content": prompt})
-
-    headers = {
-        "Authorization": f"Bearer {DEEPSEEK_API_KEY}",
-        "Content-Type": "application/json",
-    }
     payload = {
         "model": DEEPSEEK_MODEL,
         "messages": messages,
         "temperature": 0.3,
     }
 
+    headers = {
+        "Authorization": f"Bearer {DEEPSEEK_API_KEY}",
+        "Content-Type": "application/json",
+    }
+
     try:
-        print("Calling DeepSeek API...")
-        resp = requests.post(DEEPSEEK_API_URL, headers=headers, json=payload, timeout=60)
-        print("DeepSeek API status:", resp.status_code)
+        resp = requests.post(
+            DEEPSEEK_API_URL,
+            headers=headers,
+            json=payload,
+            timeout=60,
+        )
         resp.raise_for_status()
         data = resp.json()
+
         text = data["choices"][0]["message"]["content"]
         parsed = _safe_json_extract(text)
 
         if not parsed:
-            # fallback to clarify
-            result = {
-                "actions": [{"type": "clarify", "payload": {"question": "I couldn’t parse the model output. Could you rephrase?"}}],
-                "reasoning": base_reasoning + ["Model output was not valid JSON."],
-            }
-            return _normalize_result(result, email)
+            return _normalize_v14(
+                raw={
+                    "actions": [{
+                        "type": "clarify",
+                        "payload": {"question": "Model output could not be parsed."},
+                    }],
+                    "reasoning": ["Model output was not valid JSON."],
+                    "logs": [{
+                        "ts": _ts(),
+                        "source": "system",
+                        "action": "parse_failed",
+                        "email_id": email.get("id"),
+                        "details": {"raw": text[:1000]},
+                    }],
+                },
+                email=email,
+                engine="deepseek",
+                prompt_record=prompt_record,
+            )
 
-        # merge base reasoning + model reasoning
-        merged_reasoning = base_reasoning + (parsed.get("reasoning") or [])
-        merged = {"actions": parsed.get("actions") or [], "reasoning": merged_reasoning}
-        return _normalize_result(merged, email)
+        return _normalize_v14(
+            raw=parsed,
+            email=email,
+            engine="deepseek",
+            prompt_record=prompt_record,
+        )
 
     except Exception as e:
-        # fallback to mock when API fails
-        print("DeepSeek call failed:", repr(e))
-        mock = run_mock_agent(email=email, user_instruction=user_instruction, history=history)
-        merged = {"actions": mock.get("actions", []), "reasoning": base_reasoning + ["DeepSeek call failed; used mock fallback."] + (mock.get("reasoning") or [])}
-        return _normalize_result(merged, email)
+        mock = run_mock_agent(
+            email=email,
+            user_instruction=user_instruction,
+            history=history,
+        )
+        mock.setdefault("logs", []).append({
+            "ts": _ts(),
+            "source": "system",
+            "action": "deepseek_failed",
+            "email_id": email.get("id"),
+            "details": {"error": repr(e)},
+        })
+        return _normalize_v14(
+            raw=mock,
+            email=email,
+            engine="mock",
+            prompt_record=prompt_record,
+        )

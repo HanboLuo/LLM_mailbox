@@ -3,7 +3,7 @@ from pydantic import BaseModel, Field
 from fastapi.middleware.cors import CORSMiddleware
 from typing import Any, Dict, List, Literal, Optional
 
-from agent.llm_agent import run_agent  # 使用 DeepSeek（有 key）或 fallback
+from agent.llm_agent import run_agent  # DeepSeek if key exists, otherwise mock fallback
 
 
 app = FastAPI()
@@ -20,19 +20,26 @@ app.add_middleware(
 )
 
 
-# ---------- Agent protocol (v1.2) ----------
-
 Role = Literal["user", "assistant", "system"]
+Engine = Literal["deepseek", "mock"]
 
 class HistoryTurn(BaseModel):
     role: Role
     content: str
 
-ActionType = Literal["reply", "mark_read", "create_email", "delete_email", "clarify"]
+ActionType = Literal["reply", "mark_read", "create_email", "send_email", "move_email", "clarify"]
+MoveDestination = Literal["archive", "trash", "spam"]
 
 class AgentAction(BaseModel):
     type: ActionType
     payload: Dict[str, Any] = Field(default_factory=dict)
+
+class AgentLogItem(BaseModel):
+    ts: str
+    source: Literal["agent", "ui", "system"] = "agent"
+    action: str
+    email_id: Optional[str] = None
+    details: Dict[str, Any] = Field(default_factory=dict)
 
 class AgentRequest(BaseModel):
     email: Dict[str, Any]
@@ -42,17 +49,21 @@ class AgentRequest(BaseModel):
 class AgentResponse(BaseModel):
     actions: List[AgentAction]
     reasoning: List[str] = Field(default_factory=list)
+    logs: List[AgentLogItem] = Field(default_factory=list)
+    engine: Engine = "mock"
 
 
-@app.post("/agent/reply", response_model=AgentResponse)
-def agent_reply(req: AgentRequest):
+@app.post("/agent/run", response_model=AgentResponse)
+def agent_run(req: AgentRequest):
     result = run_agent(
         email=req.email,
         user_instruction=req.instruction,
         history=[t.model_dump() for t in req.history],
     )
-    # 确保字段存在
+
     return {
         "actions": result.get("actions", []),
         "reasoning": result.get("reasoning", []),
+        "logs": result.get("logs", []),
+        "engine": result.get("engine", "mock"),
     }

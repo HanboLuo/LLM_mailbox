@@ -1,29 +1,46 @@
 import { useMemo, useState } from "react";
 import type { Email } from "../types/email";
-import type { AgentResult, HistoryTurn } from "../types/agent";
+import type { AgentResult, HistoryTurn, AgentLogItem } from "../types/agent";
 
 interface AssistantProps {
   email: Email | null;
+
   onMarkRead?: (id: string) => void;
-  onDeleteEmail?: (id: string) => void;
   onCreateEmail?: (payload: { to?: string; subject: string; body: string }) => void;
+  onSendEmail?: (emailId: string) => void;
+  onMoveEmail?: (emailId: string, destination: "archive" | "trash" | "spam") => void;
+
+  onAppendLogs?: (items: AgentLogItem[]) => void;
 }
 
-export function Assistant({ email, onMarkRead, onDeleteEmail, onCreateEmail }: AssistantProps) {
+export function Assistant({
+  email,
+  onMarkRead,
+  onCreateEmail,
+  onSendEmail,
+  onMoveEmail,
+  onAppendLogs,
+}: AssistantProps) {
   const [instruction, setInstruction] = useState("");
   const [loading, setLoading] = useState(false);
 
   const [draft, setDraft] = useState<string | null>(null);
   const [reasoning, setReasoning] = useState<string[]>([]);
   const [clarify, setClarify] = useState<string | null>(null);
+  const [engine, setEngine] = useState<"deepseek" | "mock" | null>(null);
 
-  // multi-turn history (like ChatGPT)
   const [history, setHistory] = useState<HistoryTurn[]>([]);
 
   const canRun = useMemo(() => !!email && !loading, [email, loading]);
 
   if (!email) return null;
-  const emailId = email.id; // stable id (fix TS null warning)
+
+  const emailId = email.id;
+
+  function pushLocalLog(item: Omit<AgentLogItem, "ts">) {
+    const full: AgentLogItem = { ts: new Date().toISOString(), ...item };
+    onAppendLogs?.([full]);
+  }
 
   async function handleGenerate() {
     const userText = instruction.trim();
@@ -34,11 +51,18 @@ export function Assistant({ email, onMarkRead, onDeleteEmail, onCreateEmail }: A
     setReasoning([]);
     setClarify(null);
 
-    // append to local history
     const nextHistory: HistoryTurn[] = [...history, { role: "user", content: userText }];
 
+    // Log the user instruction (UI-side)
+    pushLocalLog({
+      source: "ui",
+      action: "user_instruction",
+      email_id: emailId,
+      details: { instruction: userText },
+    });
+
     try {
-      const res = await fetch("http://127.0.0.1:8000/agent/reply", {
+      const res = await fetch("http://127.0.0.1:8000/agent/run", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -50,20 +74,31 @@ export function Assistant({ email, onMarkRead, onDeleteEmail, onCreateEmail }: A
 
       const data: AgentResult = await res.json();
 
+      setEngine(data.engine ?? null);
       setReasoning(data.reasoning ?? []);
+      if (data.logs?.length) onAppendLogs?.(data.logs);
 
       // Execute actions (multi-action)
       for (const a of data.actions ?? []) {
         if (a.type === "reply") {
           setDraft(a.payload.draft);
+
+          pushLocalLog({
+            source: "ui",
+            action: "reply_draft_rendered",
+            email_id: emailId,
+            details: { length: a.payload.draft?.length ?? 0 },
+          });
         }
 
         if (a.type === "mark_read") {
           onMarkRead?.(emailId);
-        }
 
-        if (a.type === "delete_email") {
-          onDeleteEmail?.(emailId);
+          pushLocalLog({
+            source: "ui",
+            action: "mark_read_executed",
+            email_id: emailId,
+          });
         }
 
         if (a.type === "create_email") {
@@ -72,48 +107,96 @@ export function Assistant({ email, onMarkRead, onDeleteEmail, onCreateEmail }: A
             subject: a.payload.subject,
             body: a.payload.body,
           });
+
+          pushLocalLog({
+            source: "ui",
+            action: "create_email_executed",
+            email_id: emailId,
+            details: { to: a.payload.to, subject: a.payload.subject },
+          });
+        }
+
+        if (a.type === "send_email") {
+          onSendEmail?.(emailId);
+
+          pushLocalLog({
+            source: "ui",
+            action: "send_email_executed",
+            email_id: emailId,
+          });
+        }
+
+        if (a.type === "move_email") {
+          const destination = a.payload.destination;
+          onMoveEmail?.(emailId, destination);
+
+          pushLocalLog({
+            source: "ui",
+            action: `move_email_executed:${destination}`,
+            email_id: emailId,
+          });
         }
 
         if (a.type === "clarify") {
           setClarify(a.payload.question);
+
+          pushLocalLog({
+            source: "ui",
+            action: "clarify_rendered",
+            email_id: emailId,
+            details: { question: a.payload.question },
+          });
         }
       }
 
-      // append assistant summary turn for multi-turn
+      // Append assistant summary turn for multi-turn
       const assistantSummary = (() => {
         const types = (data.actions ?? []).map((x) => x.type).join(", ");
         const mainText =
           (data.actions ?? []).find((x) => x.type === "reply")?.payload?.draft ||
           (data.actions ?? []).find((x) => x.type === "clarify")?.payload?.question ||
           "";
-        return `Actions: ${types}${mainText ? `\n\n${mainText}` : ""}`;
+        return `Engine: ${data.engine ?? "unknown"}\nActions: ${types}${mainText ? `\n\n${mainText}` : ""}`;
       })();
 
       setHistory([...nextHistory, { role: "assistant", content: assistantSummary }]);
+      setInstruction("");
     } catch (e) {
       setClarify("Request failed. Please check backend is running and try again.");
+      pushLocalLog({
+        source: "system",
+        action: "request_failed",
+        email_id: emailId,
+        details: { error: String(e) },
+      });
     } finally {
       setLoading(false);
     }
   }
 
   return (
-    <div style={{ padding: 16 }}>
-      <h3 style={{ marginTop: 0 }}>Assistant</h3>
+    <div style={{ padding: 16, borderTop: "1px solid #222" }}>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline" }}>
+        <h3 style={{ marginTop: 0, marginBottom: 8 }}>Assistant</h3>
+        <div style={{ color: "#aaa", fontSize: 12 }}>
+          Engine: <span style={{ color: "#ddd" }}>{engine ?? "unknown"}</span>
+        </div>
+      </div>
 
       <textarea
         value={instruction}
         onChange={(e) => setInstruction(e.target.value)}
-        placeholder="Tell the assistant what to do… (Chinese is OK)"
+        placeholder="Tell the assistant what to do (Chinese is OK). Examples: 'archive this', 'mark as spam', 'reply politely', 'create an email to ...', 'send this draft'."
         style={{
           width: "100%",
           minHeight: 90,
           marginBottom: 10,
-          background: "#222",
+          background: "#111",
           color: "#eee",
           border: "1px solid #333",
-          borderRadius: 8,
+          borderRadius: 10,
           padding: 10,
+          outline: "none",
         }}
       />
 
@@ -129,7 +212,7 @@ export function Assistant({ email, onMarkRead, onDeleteEmail, onCreateEmail }: A
           cursor: canRun ? "pointer" : "not-allowed",
         }}
       >
-        {loading ? "Thinking…" : "Generate"}
+        {loading ? "Thinking..." : "Run"}
       </button>
 
       {reasoning.length > 0 && (
@@ -156,7 +239,7 @@ export function Assistant({ email, onMarkRead, onDeleteEmail, onCreateEmail }: A
           <pre
             style={{
               whiteSpace: "pre-wrap",
-              background: "#1e1e1e",
+              background: "#0f0f0f",
               padding: 12,
               borderRadius: 10,
               border: "1px solid #333",

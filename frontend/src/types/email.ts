@@ -1,4 +1,4 @@
-export type Folder = "inbox" | "sent" | "drafts" | "trash";
+export type Folder = "inbox" | "sent" | "drafts" | "trash" | "spam" | "archive";
 
 export interface Email {
   id: string;
