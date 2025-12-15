@@ -175,7 +175,14 @@ export function Assistant({
   }
 
   return (
-    <div style={{ padding: 16, borderTop: "1px solid #222" }}>
+    <div
+  style={{
+    padding: 16,
+    borderTop: "1px solid #222",
+    background: "transparent",
+  }}
+>
+
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline" }}>
         <h3 style={{ marginTop: 0, marginBottom: 8 }}>Assistant</h3>
         <div style={{ color: "#aaa", fontSize: 12 }}>

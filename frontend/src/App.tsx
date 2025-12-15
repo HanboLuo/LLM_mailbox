@@ -142,20 +142,47 @@ export default function App() {
 
       <EmailList emails={visibleEmails} selectedId={selectedId} onSelect={handleSelectEmail} />
 
-      <div style={{ flex: 1, display: "flex", flexDirection: "column" }}>
-        <EmailView email={selected} />
+      <div
+  style={{
+    flex: 1,
+    display: "flex",
+    flexDirection: "column",
+    background: "#000",
+    minWidth: 0, // VERY IMPORTANT
+  }}
+>
+  {/* Scrollable main content */}
+  <div
+    style={{
+      flex: 1,
+      overflowY: "auto",
+      minWidth: 0, // prevent children from expanding width
+    }}
+  >
+    <EmailView email={selected} />
 
-        <Assistant
-          email={selected}
-          onMarkRead={(id) => markRead(id)}
-          onCreateEmail={(payload) => createDraft(payload)}
-          onSendEmail={(id) => sendEmail(id)}
-          onMoveEmail={(id, destination) => moveEmail(id, destination)}
-          onAppendLogs={appendLogs}
-        />
+    <Assistant
+      email={selected}
+      onMarkRead={(id) => markRead(id)}
+      onCreateEmail={(payload) => createDraft(payload)}
+      onSendEmail={(id) => sendEmail(id)}
+      onMoveEmail={(id, destination) => moveEmail(id, destination)}
+      onAppendLogs={appendLogs}
+    />
+  </div>
 
-        <LogPanel logs={logs} />
-      </div>
+  {/* Fixed bottom action log */}
+  <div
+    style={{
+      borderTop: "1px solid #222",
+      background: "#000",
+      flexShrink: 0,
+    }}
+  >
+    <LogPanel logs={logs} />
+  </div>
+</div>
+
     </div>
   );
 }

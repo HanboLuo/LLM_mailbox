@@ -2,7 +2,16 @@ import type { AgentLogItem } from "../types/agent";
 
 export function LogPanel({ logs }: { logs: AgentLogItem[] }) {
   return (
-    <div style={{ padding: 12, borderTop: "1px solid #222" }}>
+    <div
+  style={{
+    padding: 12,
+    borderTop: "1px solid #222",
+    maxWidth: "100%",
+    boxSizing: "border-box",
+    overflowX: "hidden",
+  }}
+>
+
       <h4 style={{ margin: "0 0 8px" }}>Action Log</h4>
       {logs.length === 0 ? (
         <div style={{ color: "#999", fontSize: 12 }}>No logs yet.</div>
