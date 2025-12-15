@@ -68,6 +68,18 @@ def _normalize_v14(
 
     logs = list(raw.get("logs") or [])
 
+    normalized_logs = []
+
+    for l in logs:
+        normalized_logs.append({
+            **l,
+            "ts": _ts(),
+            "source": l.get("source", "agent"),
+        })
+
+    logs = normalized_logs
+
+
     normalized_actions: List[Dict[str, Any]] = []
 
     for a in actions:
@@ -186,6 +198,20 @@ def _normalize_v14(
         "details": {
             "engine": engine,
             "model": DEEPSEEK_MODEL if engine == "deepseek" else "mock",
+        },
+    })
+
+    logs.append({
+        "ts": _ts(),
+        "source": "system",
+        "action": "final_prompt_used",
+        "email_id": email_id,
+        "details": {
+            "prompt": (
+                prompt_record.get("items", [])[-1].get("content")
+                if prompt_record.get("items")
+                else None
+            ),
         },
     })
 
