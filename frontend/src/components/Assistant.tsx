@@ -1,66 +1,41 @@
 import { useMemo, useState } from "react";
 import type { Email } from "../types/email";
-
-type ChatMessage = {
-  role: "user" | "assistant";
-  content: string;
-};
-
-type AgentAction =
-  | { type: "reply"; content: string }
-  | { type: "mark_read" }
-  | { type: "ignore" }
-  | { type: "ask_clarify"; question: string };
-
-type AgentResult = {
-  actions: AgentAction[];
-  reasoning: string[];
-  assistant_message?: string | null;
-};
+import type { AgentResult, HistoryTurn } from "../types/agent";
 
 interface AssistantProps {
   email: Email | null;
   onMarkRead?: (id: string) => void;
+  onDeleteEmail?: (id: string) => void;
+  onCreateEmail?: (payload: { to?: string; subject: string; body: string }) => void;
 }
 
-export function Assistant({ email, onMarkRead }: AssistantProps) {
+export function Assistant({ email, onMarkRead, onDeleteEmail, onCreateEmail }: AssistantProps) {
   const [instruction, setInstruction] = useState("");
   const [loading, setLoading] = useState(false);
 
-  const [messages, setMessages] = useState<ChatMessage[]>([]);
-  const [reasoning, setReasoning] = useState<string[]>([]);
   const [draft, setDraft] = useState<string | null>(null);
-  const [error, setError] = useState<string | null>(null);
+  const [reasoning, setReasoning] = useState<string[]>([]);
+  const [clarify, setClarify] = useState<string | null>(null);
 
-  // Reset chat when switching to a different email
-  const emailKey = email?.id ?? "none";
-  // lightweight reset when email changes:
-  // (如果你希望“每封邮件有独立对话”，这是最直观的做法)
-  useMemo(() => {
-    setMessages([]);
-    setReasoning([]);
-    setDraft(null);
-    setError(null);
-    setInstruction("");
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [emailKey]);
+  // multi-turn history (like ChatGPT)
+  const [history, setHistory] = useState<HistoryTurn[]>([]);
+
+  const canRun = useMemo(() => !!email && !loading, [email, loading]);
 
   if (!email) return null;
+  const emailId = email.id; // stable id (fix TS null warning)
 
   async function handleGenerate() {
-    if (!email) return;
-
-    const emailId = email.id; // capture stable id
     const userText = instruction.trim();
     if (!userText) return;
 
     setLoading(true);
-    setError(null);
     setDraft(null);
+    setReasoning([]);
+    setClarify(null);
 
-    const nextMessages: ChatMessage[] = [...messages, { role: "user", content: userText }];
-    setMessages(nextMessages);
-    setInstruction("");
+    // append to local history
+    const nextHistory: HistoryTurn[] = [...history, { role: "user", content: userText }];
 
     try {
       const res = await fetch("http://127.0.0.1:8000/agent/reply", {
@@ -68,54 +43,55 @@ export function Assistant({ email, onMarkRead }: AssistantProps) {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           email,
-          messages: nextMessages,
+          instruction: userText,
+          history: nextHistory,
         }),
       });
 
-      if (!res.ok) {
-        const t = await res.text();
-        throw new Error(`HTTP ${res.status}: ${t}`);
-      }
-
       const data: AgentResult = await res.json();
 
-      // Always show reasoning (for transparency)
       setReasoning(data.reasoning ?? []);
 
-      // Optional assistant message (for chat display)
-      if (data.assistant_message) {
-        setMessages((prev) => [...prev, { role: "assistant", content: data.assistant_message! }]);
-      }
-
-      // Execute multiple actions
-      for (const action of data.actions ?? []) {
-        if (action.type === "reply") {
-          setDraft(action.content);
-          // Also reflect in chat so it feels like ChatGPT
-          setMessages((prev) => [
-            ...prev,
-            { role: "assistant", content: "Draft generated below." },
-          ]);
+      // Execute actions (multi-action)
+      for (const a of data.actions ?? []) {
+        if (a.type === "reply") {
+          setDraft(a.payload.draft);
         }
 
-        if (action.type === "mark_read") {
+        if (a.type === "mark_read") {
           onMarkRead?.(emailId);
-          setMessages((prev) => [
-            ...prev,
-            { role: "assistant", content: "Marked as read." },
-          ]);
         }
 
-        if (action.type === "ask_clarify") {
-          setMessages((prev) => [...prev, { role: "assistant", content: action.question }]);
+        if (a.type === "delete_email") {
+          onDeleteEmail?.(emailId);
         }
 
-        if (action.type === "ignore") {
-          setMessages((prev) => [...prev, { role: "assistant", content: "Okay, I will ignore this." }]);
+        if (a.type === "create_email") {
+          onCreateEmail?.({
+            to: a.payload.to,
+            subject: a.payload.subject,
+            body: a.payload.body,
+          });
+        }
+
+        if (a.type === "clarify") {
+          setClarify(a.payload.question);
         }
       }
-    } catch (e: any) {
-      setError(e?.message ?? String(e));
+
+      // append assistant summary turn for multi-turn
+      const assistantSummary = (() => {
+        const types = (data.actions ?? []).map((x) => x.type).join(", ");
+        const mainText =
+          (data.actions ?? []).find((x) => x.type === "reply")?.payload?.draft ||
+          (data.actions ?? []).find((x) => x.type === "clarify")?.payload?.question ||
+          "";
+        return `Actions: ${types}${mainText ? `\n\n${mainText}` : ""}`;
+      })();
+
+      setHistory([...nextHistory, { role: "assistant", content: assistantSummary }]);
+    } catch (e) {
+      setClarify("Request failed. Please check backend is running and try again.");
     } finally {
       setLoading(false);
     }
@@ -125,40 +101,16 @@ export function Assistant({ email, onMarkRead }: AssistantProps) {
     <div style={{ padding: 16 }}>
       <h3 style={{ marginTop: 0 }}>Assistant</h3>
 
-      {/* Chat history */}
-      {messages.length > 0 && (
-        <div
-          style={{
-            border: "1px solid #2a2a2a",
-            borderRadius: 8,
-            padding: 12,
-            marginBottom: 12,
-            background: "#151515",
-            maxHeight: 220,
-            overflowY: "auto",
-          }}
-        >
-          {messages.map((m, idx) => (
-            <div key={idx} style={{ marginBottom: 10, opacity: 0.95 }}>
-              <div style={{ fontSize: 12, color: "#aaa", marginBottom: 4 }}>
-                {m.role === "user" ? "You" : "Assistant"}
-              </div>
-              <div style={{ whiteSpace: "pre-wrap", lineHeight: 1.35 }}>{m.content}</div>
-            </div>
-          ))}
-        </div>
-      )}
-
       <textarea
         value={instruction}
         onChange={(e) => setInstruction(e.target.value)}
-        placeholder="You can type anything here (中文也可以)…"
+        placeholder="Tell the assistant what to do… (Chinese is OK)"
         style={{
           width: "100%",
           minHeight: 90,
-          marginBottom: 8,
-          background: "#1e1e1e",
-          color: "#fff",
+          marginBottom: 10,
+          background: "#222",
+          color: "#eee",
           border: "1px solid #333",
           borderRadius: 8,
           padding: 10,
@@ -167,30 +119,23 @@ export function Assistant({ email, onMarkRead }: AssistantProps) {
 
       <button
         onClick={handleGenerate}
-        disabled={loading}
+        disabled={!canRun}
         style={{
           padding: "10px 14px",
           borderRadius: 10,
           border: "1px solid #333",
-          background: "#222",
+          background: "#1b1b1b",
           color: "#fff",
-          cursor: loading ? "not-allowed" : "pointer",
+          cursor: canRun ? "pointer" : "not-allowed",
         }}
       >
         {loading ? "Thinking…" : "Generate"}
       </button>
 
-      {error && (
-        <div style={{ marginTop: 12, color: "#ff8a8a", whiteSpace: "pre-wrap" }}>
-          {error}
-        </div>
-      )}
-
-      {/* Reasoning */}
       {reasoning.length > 0 && (
         <div style={{ marginTop: 16 }}>
-          <h4 style={{ marginBottom: 8 }}>Reasoning</h4>
-          <ul style={{ marginTop: 0, paddingLeft: 18, color: "#bbb", lineHeight: 1.4 }}>
+          <h4 style={{ margin: "12px 0 8px" }}>Reasoning</h4>
+          <ul style={{ margin: 0, paddingLeft: 18, color: "#bbb", lineHeight: 1.6 }}>
             {reasoning.map((r, i) => (
               <li key={i}>{r}</li>
             ))}
@@ -198,18 +143,25 @@ export function Assistant({ email, onMarkRead }: AssistantProps) {
         </div>
       )}
 
-      {/* Draft */}
+      {clarify && (
+        <div style={{ marginTop: 16 }}>
+          <h4 style={{ margin: "12px 0 8px" }}>Clarify</h4>
+          <div style={{ color: "#ffd27d", whiteSpace: "pre-wrap" }}>{clarify}</div>
+        </div>
+      )}
+
       {draft && (
         <div style={{ marginTop: 16 }}>
-          <h4 style={{ marginBottom: 8 }}>Draft Reply</h4>
+          <h4 style={{ margin: "12px 0 8px" }}>Draft Reply</h4>
           <pre
             style={{
               whiteSpace: "pre-wrap",
               background: "#1e1e1e",
               padding: 12,
-              borderRadius: 8,
+              borderRadius: 10,
               border: "1px solid #333",
-              color: "#fff",
+              color: "#eee",
+              lineHeight: 1.5,
             }}
           >
             {draft}

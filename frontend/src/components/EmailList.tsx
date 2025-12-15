@@ -6,84 +6,45 @@ interface EmailListProps {
   onSelect: (email: Email) => void;
 }
 
-export function EmailList({
-  emails,
-  selectedId,
-  onSelect,
-}: EmailListProps) {
+export function EmailList({ emails, selectedId, onSelect }: EmailListProps) {
   return (
     <div
       style={{
-        width: 360,
+        width: 380,
         borderRight: "1px solid #333",
         overflowY: "auto",
+        background: "#1f1f1f",
       }}
     >
       {emails.map((email) => {
         const selected = selectedId === email.id;
-        const unread = email.unread;
 
         return (
           <div
             key={email.id}
             onClick={() => onSelect(email)}
             style={{
-              padding: "10px 14px",
+              padding: "12px 14px",
               cursor: "pointer",
-              background: selected
-                ? "#2a2a2a"
-                : unread
-                ? "#1f1f1f"
-                : "transparent",
+              background: selected ? "#2a2a2a" : "transparent",
               borderBottom: "1px solid #2a2a2a",
               display: "flex",
-              gap: 8,
+              gap: 10,
+              alignItems: "flex-start",
             }}
           >
-            {/* 蓝点 */}
-            <div
-              style={{
-                width: 8,
-                display: "flex",
-                justifyContent: "center",
-                paddingTop: 6,
-              }}
-            >
-              {unread && (
-                <div
-                  style={{
-                    width: 6,
-                    height: 6,
-                    borderRadius: "50%",
-                    background: "#4c8bf5",
-                  }}
-                />
-              )}
+            <div style={{ marginTop: 6, width: 10 }}>
+              {email.unread ? (
+                <span style={{ display: "inline-block", width: 8, height: 8, borderRadius: 999, background: "#4ea1ff" }} />
+              ) : null}
             </div>
 
-            {/* 邮件内容 */}
-            <div style={{ flex: 1 }}>
-              <div
-                style={{
-                  display: "flex",
-                  justifyContent: "space-between",
-                  marginBottom: 4,
-                }}
-              >
-                <span
-                  style={{
-                    fontWeight: unread ? 700 : 500,
-                  }}
-                >
-                  {email.from}
-                </span>
+            <div style={{ flex: 1, minWidth: 0 }}>
+              <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 4 }}>
+                <span style={{ fontWeight: 700, color: "#eaeaea" }}>{email.from}</span>
               </div>
 
-              <div
-                style={{
-                  fontWeight: unread ? 700 : 500,
-                }}
-              >
+              <div style={{ fontWeight: email.unread ? 800 : 500, color: "#f2f2f2" }}>
                 {email.subject}
               </div>
 

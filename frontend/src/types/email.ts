@@ -1,3 +1,5 @@
+export type Folder = "inbox" | "sent" | "drafts" | "trash";
+
 export interface Email {
   id: string;
   from: string;
@@ -5,6 +7,6 @@ export interface Email {
   subject: string;
   body: string;
 
-  folder: "inbox" | "sent" | "drafts" | "trash";
-  unread: boolean;
+  folder: Folder;
+  unread?: boolean;
 }

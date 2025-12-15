@@ -1,9 +1,9 @@
 from fastapi import FastAPI
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from fastapi.middleware.cors import CORSMiddleware
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Literal, Optional
 
-from agent.llm_agent import run_agent_llm
+from agent.llm_agent import run_agent  # 使用 DeepSeek（有 key）或 fallback
 
 
 app = FastAPI()
@@ -20,25 +20,39 @@ app.add_middleware(
 )
 
 
-class ChatMessage(BaseModel):
-    role: str  # "user" | "assistant"
+# ---------- Agent protocol (v1.2) ----------
+
+Role = Literal["user", "assistant", "system"]
+
+class HistoryTurn(BaseModel):
+    role: Role
     content: str
 
+ActionType = Literal["reply", "mark_read", "create_email", "delete_email", "clarify"]
+
+class AgentAction(BaseModel):
+    type: ActionType
+    payload: Dict[str, Any] = Field(default_factory=dict)
 
 class AgentRequest(BaseModel):
     email: Dict[str, Any]
-    messages: List[ChatMessage]  # multi-turn chat history
+    instruction: str
+    history: List[HistoryTurn] = Field(default_factory=list)
+
+class AgentResponse(BaseModel):
+    actions: List[AgentAction]
+    reasoning: List[str] = Field(default_factory=list)
 
 
-@app.post("/agent/reply")
+@app.post("/agent/reply", response_model=AgentResponse)
 def agent_reply(req: AgentRequest):
-    """
-    Returns:
-      {
-        "actions": [{ "type": "...", ... }],
-        "reasoning": ["...", ...],
-        "assistant_message": "..."   # optional, for chat display
-      }
-    """
-    result = run_agent_llm(email=req.email, messages=[m.model_dump() for m in req.messages])
-    return result
+    result = run_agent(
+        email=req.email,
+        user_instruction=req.instruction,
+        history=[t.model_dump() for t in req.history],
+    )
+    # 确保字段存在
+    return {
+        "actions": result.get("actions", []),
+        "reasoning": result.get("reasoning", []),
+    }
