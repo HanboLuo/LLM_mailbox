@@ -47,8 +47,25 @@ def _normalize_v14(
     """
     email_id = email.get("id")
 
-    actions = raw.get("actions") or []
-    reasoning = list(raw.get("reasoning") or [])
+    raw_actions = raw.get("actions") or []
+
+    # Normalize actions to list
+    if isinstance(raw_actions, dict):
+        actions = [raw_actions]
+    elif isinstance(raw_actions, list):
+        actions = raw_actions
+    else:
+        actions = []
+
+    raw_reasoning = raw.get("reasoning") or []
+
+    if isinstance(raw_reasoning, str):
+        reasoning = [raw_reasoning]
+    elif isinstance(raw_reasoning, list):
+        reasoning = raw_reasoning
+    else:
+        reasoning = []
+
     logs = list(raw.get("logs") or [])
 
     normalized_actions: List[Dict[str, Any]] = []
