@@ -6,6 +6,7 @@ interface AssistantProps {
   email: Email | null;
 
   onMarkRead?: (id: string) => void;
+  onMarkUnread?: (id: string) => void;
   onCreateEmail?: (payload: { to?: string; subject: string; body: string }) => void;
   onSendEmail?: (emailId: string) => void;
   onMoveEmail?: (emailId: string, destination: "inbox" | "archive" | "trash" | "spam") => void;
@@ -16,6 +17,7 @@ interface AssistantProps {
 export function Assistant({
   email,
   onMarkRead,
+  onMarkUnread,
   onCreateEmail,
   onSendEmail,
   onMoveEmail,
@@ -124,6 +126,18 @@ export function Assistant({
             action: "clarify_rendered",
             email_id: emailId,
             details: { question: a.payload.question },
+          });
+          break;
+        }
+
+        case "mark_unread": {
+          const id = a.payload.email_id ?? emailId;
+          onMarkUnread?.(id);
+
+          pushLocalLog({
+            source: "ui",
+            action: "mark_unread_executed",
+            email_id: id,
           });
           break;
         }

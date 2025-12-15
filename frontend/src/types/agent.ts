@@ -1,6 +1,7 @@
 export type AgentActionType =
   | "reply"
   | "mark_read"
+  | "mark_unread"
   | "create_email"
   | "send_email"
   | "move_email"
@@ -11,6 +12,7 @@ export type AgentActionType =
 export type AgentAction =
   | { type: "reply"; payload: { draft: string } }
   | { type: "mark_read"; payload: { email_id: string } }
+  | { type: "mark_unread"; payload: { email_id: string } }
   | { type: "create_email"; payload: { to?: string; subject: string; body: string } }
   | { type: "send_email"; payload: { email_id: string } }
   | { type: "move_email"; payload: { email_id: string; destination: "inbox" | "archive" | "trash" | "spam" } }
