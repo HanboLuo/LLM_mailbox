@@ -109,8 +109,11 @@ def _normalize_v14(
         # ---------- canonical move ----------
         elif t == "move_email":
             dest = p.get("destination", "archive")
-            if dest not in ("archive", "trash", "spam"):
+            VALID_DESTINATIONS = ("inbox", "archive", "trash", "spam")
+
+            if dest not in VALID_DESTINATIONS:
                 dest = "archive"
+
             normalized_actions.append({
                 "type": "move_email",
                 "payload": {
