@@ -18,9 +18,6 @@ def _ts() -> str:
 
 
 def _safe_json_extract(text: str) -> Optional[Dict[str, Any]]:
-    """
-    Extract JSON from model output safely.
-    """
     try:
         return json.loads(text)
     except Exception:
@@ -46,47 +43,53 @@ def _normalize_v14(
 ) -> Dict[str, Any]:
     """
     Normalize agent output to v1.4 protocol.
+    IMPORTANT: never drop valid move_email / delete / archive actions.
     """
     email_id = email.get("id")
 
     actions = raw.get("actions") or []
-    reasoning = raw.get("reasoning") or []
-    logs = raw.get("logs") or []
+    reasoning = list(raw.get("reasoning") or [])
+    logs = list(raw.get("logs") or [])
 
     normalized_actions: List[Dict[str, Any]] = []
 
     for a in actions:
-        t = a.get("type")
+        t = (a.get("type") or "").lower()
         p = a.get("payload") or {}
 
+        # ---------- reply ----------
         if t == "reply":
             normalized_actions.append({
                 "type": "reply",
                 "payload": {"draft": p.get("draft", "")},
             })
 
+        # ---------- mark read ----------
         elif t == "mark_read":
             normalized_actions.append({
                 "type": "mark_read",
                 "payload": {"email_id": p.get("email_id") or email_id},
             })
 
+        # ---------- create email ----------
         elif t == "create_email":
             normalized_actions.append({
                 "type": "create_email",
                 "payload": {
-                    "to": p.get("to", ""),
+                    "to": p.get("to"),
                     "subject": p.get("subject", ""),
                     "body": p.get("body", ""),
                 },
             })
 
+        # ---------- send ----------
         elif t == "send_email":
             normalized_actions.append({
                 "type": "send_email",
                 "payload": {"email_id": p.get("email_id") or email_id},
             })
 
+        # ---------- canonical move ----------
         elif t == "move_email":
             dest = p.get("destination", "archive")
             if dest not in ("archive", "trash", "spam"):
@@ -99,17 +102,12 @@ def _normalize_v14(
                 },
             })
 
-        elif t == "clarify":
-            normalized_actions.append({
-                "type": "clarify",
-                "payload": {"question": p.get("question", "Could you clarify?")},
-            })
-
+        # ---------- aliases ----------
         elif t in ("delete", "delete_email", "remove", "remove_email"):
             normalized_actions.append({
                 "type": "move_email",
                 "payload": {
-                    "email_id": p.get("email_id") or email_id,
+                    "email_id": email_id,
                     "destination": "trash",
                 },
             })
@@ -118,7 +116,7 @@ def _normalize_v14(
             normalized_actions.append({
                 "type": "move_email",
                 "payload": {
-                    "email_id": p.get("email_id") or email_id,
+                    "email_id": email_id,
                     "destination": "archive",
                 },
             })
@@ -127,18 +125,30 @@ def _normalize_v14(
             normalized_actions.append({
                 "type": "move_email",
                 "payload": {
-                    "email_id": p.get("email_id") or email_id,
+                    "email_id": email_id,
                     "destination": "spam",
                 },
             })
 
+        # ---------- clarify ----------
+        elif t == "clarify":
+            normalized_actions.append({
+                "type": "clarify",
+                "payload": {"question": p.get("question", "Could you clarify?")},
+            })
 
-    if not normalized_actions:
+    # only fallback if there is truly NOTHING actionable
+    has_effect = any(
+        a["type"] in ("reply", "move_email", "mark_read", "create_email", "send_email")
+        for a in normalized_actions
+    )
+
+    if not has_effect:
         normalized_actions = [{
             "type": "clarify",
             "payload": {"question": "I am not sure what to do. Could you clarify?"},
         }]
-        reasoning.append("No valid actions produced. Fallback to clarify.")
+        reasoning.append("No executable actions detected. Fallback to clarify.")
 
     logs.append({
         "ts": _ts(),
@@ -166,14 +176,8 @@ def run_agent(
     user_instruction: str,
     history: Optional[List[Dict[str, str]]] = None,
 ) -> Dict[str, Any]:
-    """
-    v1.4 Agent:
-    - PromptBuilder is the ONLY prompt source
-    - PromptRecord is always returned
-    """
     history = history or []
 
-    # ---------- Build prompt (唯一入口) ----------
     built = build_agent_prompt(
         email=email,
         user_instruction=user_instruction,
@@ -184,7 +188,6 @@ def run_agent(
     final_prompt = built["final_prompt"]
     prompt_record = built["prompt_record"].export()
 
-    # ---------- No LLM key: fallback ----------
     if not DEEPSEEK_API_KEY:
         mock = run_mock_agent(
             email=email,
@@ -198,7 +201,6 @@ def run_agent(
             prompt_record=prompt_record,
         )
 
-    # ---------- Call DeepSeek ----------
     messages = [
         {"role": "system", "content": system_prompt},
         {"role": "user", "content": final_prompt},
@@ -229,25 +231,10 @@ def run_agent(
         parsed = _safe_json_extract(text)
 
         if not parsed:
-            return _normalize_v14(
-                raw={
-                    "actions": [{
-                        "type": "clarify",
-                        "payload": {"question": "Model output could not be parsed."},
-                    }],
-                    "reasoning": ["Model output was not valid JSON."],
-                    "logs": [{
-                        "ts": _ts(),
-                        "source": "system",
-                        "action": "parse_failed",
-                        "email_id": email.get("id"),
-                        "details": {"raw": text[:1000]},
-                    }],
-                },
-                email=email,
-                engine="deepseek",
-                prompt_record=prompt_record,
-            )
+            parsed = {
+                "actions": [{"type": "clarify"}],
+                "reasoning": ["Model output was not valid JSON."],
+            }
 
         return _normalize_v14(
             raw=parsed,

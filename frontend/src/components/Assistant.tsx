@@ -78,6 +78,10 @@ export function Assistant({
       setReasoning(data.reasoning ?? []);
       if (data.logs?.length) onAppendLogs?.(data.logs);
 
+      const hasMove = (data.actions ?? []).some(
+        (a) => a.type === "move_email"
+      );
+
       // Execute actions (multi-action)
       for (const a of data.actions ?? []) {
         if (a.type === "reply") {
@@ -137,7 +141,7 @@ export function Assistant({
           });
         }
 
-        if (a.type === "clarify") {
+        if (a.type === "clarify" && !hasMove) {
           setClarify(a.payload.question);
 
           pushLocalLog({
