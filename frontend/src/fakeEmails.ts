@@ -1,3 +1,5 @@
+// Go to App.tsx
+
 export type Folder = "inbox" | "sent" | "drafts" | "trash" | "spam" | "archive";
 
 export interface Email {

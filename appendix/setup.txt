@@ -1,0 +1,14 @@
+setx DEEPSEEK_API_KEY "sk-123ab..."
+
+
+# backend
+cd D:\mailbox
+conda activate general
+uvicorn app:app --reload
+
+# frontend
+cd D:\mailbox\frontend
+npm run dev
+
+
+https://github.com/HanboLuo/LLM_mailbox

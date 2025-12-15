@@ -1,0 +1,3 @@
+archive the email with email id is 6
+
+restore this email and then mark as unread

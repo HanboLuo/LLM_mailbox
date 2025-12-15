@@ -82,6 +82,7 @@ def _normalize_v14(
 
     normalized_actions: List[Dict[str, Any]] = []
 
+    # Action cases
     for a in actions:
         t = (a.get("type") or "").lower()
         p = a.get("payload") or {}
@@ -190,6 +191,7 @@ def _normalize_v14(
         }]
         reasoning.append("No executable actions detected. Fallback to clarify.")
 
+    # Logs
     logs.append({
         "ts": _ts(),
         "source": "system",
