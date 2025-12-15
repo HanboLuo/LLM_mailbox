@@ -6,20 +6,14 @@ export type AgentActionType =
   | "move_email"
   | "clarify";
 
-export type MoveDestination = "archive" | "trash" | "spam";
+// export type MoveDestination = "inbox" | "archive" | "trash" | "spam";
 
 export type AgentAction =
   | { type: "reply"; payload: { draft: string } }
-  | { type: "mark_read"; payload: { email_id?: string } }
-  | {
-      type: "create_email";
-      payload: { to?: string; subject: string; body: string };
-    }
-  | { type: "send_email"; payload: { email_id?: string } }
-  | {
-      type: "move_email";
-      payload: { email_id?: string; destination: MoveDestination };
-    }
+  | { type: "mark_read"; payload: { email_id: string } }
+  | { type: "create_email"; payload: { to?: string; subject: string; body: string } }
+  | { type: "send_email"; payload: { email_id: string } }
+  | { type: "move_email"; payload: { email_id: string; destination: "inbox" | "archive" | "trash" | "spam" } }
   | { type: "clarify"; payload: { question: string } };
 
 export interface AgentLogItem {

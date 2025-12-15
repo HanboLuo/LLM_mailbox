@@ -1,10 +1,12 @@
-import type { AgentAction } from "./agent";
+// src/types/log.ts
+import type { AgentAction, AgentLogItem } from "./agent";
 
-export interface AgentLog {
-  timestamp: number;
-  email_id: string | null;
-  instruction: string;
-  actions: AgentAction[];
-  reasoning: string[];
-  model: "llm" | "mock";
+export interface AgentRunSummary {
+  run_id: string;
+  started_at: string;
+  email_id?: string;
+  instruction?: string;
+  engine?: "deepseek" | "mock";
+  actions?: AgentAction[];
+  logs?: AgentLogItem[];
 }

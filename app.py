@@ -28,7 +28,7 @@ class HistoryTurn(BaseModel):
     content: str
 
 ActionType = Literal["reply", "mark_read", "create_email", "send_email", "move_email", "clarify"]
-MoveDestination = Literal["archive", "trash", "spam"]
+MoveDestination = Literal["inbox", "archive", "trash", "spam"]
 
 class AgentAction(BaseModel):
     type: ActionType
@@ -51,6 +51,7 @@ class AgentResponse(BaseModel):
     reasoning: List[str] = Field(default_factory=list)
     logs: List[AgentLogItem] = Field(default_factory=list)
     engine: Engine = "mock"
+    prompt_record: Optional[Dict[str, Any]] = None
 
 
 @app.post("/agent/run", response_model=AgentResponse)
@@ -62,8 +63,10 @@ def agent_run(req: AgentRequest):
     )
 
     return {
-        "actions": result.get("actions", []),
-        "reasoning": result.get("reasoning", []),
-        "logs": result.get("logs", []),
-        "engine": result.get("engine", "mock"),
+    "actions": result.get("actions", []),
+    "reasoning": result.get("reasoning", []),
+    "logs": result.get("logs", []),
+    "engine": result.get("engine", "mock"),
+    "prompt_record": result.get("prompt_record"),
     }
+

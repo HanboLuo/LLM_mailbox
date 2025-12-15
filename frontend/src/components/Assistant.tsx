@@ -8,7 +8,7 @@ interface AssistantProps {
   onMarkRead?: (id: string) => void;
   onCreateEmail?: (payload: { to?: string; subject: string; body: string }) => void;
   onSendEmail?: (emailId: string) => void;
-  onMoveEmail?: (emailId: string, destination: "archive" | "trash" | "spam") => void;
+  onMoveEmail?: (emailId: string, destination: "inbox" | "archive" | "trash" | "spam") => void;
 
   onAppendLogs?: (items: AgentLogItem[]) => void;
 }
@@ -41,6 +41,102 @@ export function Assistant({
     const full: AgentLogItem = { ts: new Date().toISOString(), ...item };
     onAppendLogs?.([full]);
   }
+  
+  function executeActions(actions: AgentResult["actions"] | undefined) {
+    if (!actions || actions.length === 0) return;
+
+    for (const a of actions) {
+      switch (a.type) {
+        case "reply": {
+          setDraft(a.payload.draft);
+
+          pushLocalLog({
+            source: "ui",
+            action: "reply_draft_rendered",
+            email_id: emailId,
+            details: { length: a.payload.draft?.length ?? 0 },
+          });
+          break;
+        }
+
+        case "mark_read": {
+          const id = a.payload.email_id ?? emailId;
+          onMarkRead?.(id);
+
+          pushLocalLog({
+            source: "ui",
+            action: "mark_read_executed",
+            email_id: id,
+          });
+          break;
+        }
+
+        case "create_email": {
+          onCreateEmail?.({
+            to: a.payload.to,
+            subject: a.payload.subject,
+            body: a.payload.body,
+          });
+
+          pushLocalLog({
+            source: "ui",
+            action: "create_email_executed",
+            email_id: emailId,
+            details: {
+              to: a.payload.to,
+              subject: a.payload.subject,
+            },
+          });
+          break;
+        }
+
+        case "send_email": {
+          const id = a.payload.email_id ?? emailId;
+          onSendEmail?.(id);
+
+          pushLocalLog({
+            source: "ui",
+            action: "send_email_executed",
+            email_id: id,
+          });
+          break;
+        }
+
+        case "move_email": {
+          const id = a.payload.email_id ?? emailId;
+          const destination = a.payload.destination ?? "archive";
+
+          onMoveEmail?.(id, destination);
+
+          pushLocalLog({
+            source: "ui",
+            action: `move_email_executed:${destination}`,
+            email_id: id,
+          });
+          break;
+        }
+
+        case "clarify": {
+          setClarify(a.payload.question);
+
+          pushLocalLog({
+            source: "ui",
+            action: "clarify_rendered",
+            email_id: emailId,
+            details: { question: a.payload.question },
+          });
+          break;
+        }
+
+        default: {
+          // future-proof
+          console.warn("Unhandled agent action:", a);
+        }
+      }
+    }
+    // return actions.map(a => a.type);
+  }
+
 
   async function handleGenerate() {
     const userText = instruction.trim();
@@ -78,80 +174,7 @@ export function Assistant({
       setReasoning(data.reasoning ?? []);
       if (data.logs?.length) onAppendLogs?.(data.logs);
 
-      const hasMove = (data.actions ?? []).some(
-        (a) => a.type === "move_email"
-      );
-
-      // Execute actions (multi-action)
-      for (const a of data.actions ?? []) {
-        if (a.type === "reply") {
-          setDraft(a.payload.draft);
-
-          pushLocalLog({
-            source: "ui",
-            action: "reply_draft_rendered",
-            email_id: emailId,
-            details: { length: a.payload.draft?.length ?? 0 },
-          });
-        }
-
-        if (a.type === "mark_read") {
-          onMarkRead?.(emailId);
-
-          pushLocalLog({
-            source: "ui",
-            action: "mark_read_executed",
-            email_id: emailId,
-          });
-        }
-
-        if (a.type === "create_email") {
-          onCreateEmail?.({
-            to: a.payload.to,
-            subject: a.payload.subject,
-            body: a.payload.body,
-          });
-
-          pushLocalLog({
-            source: "ui",
-            action: "create_email_executed",
-            email_id: emailId,
-            details: { to: a.payload.to, subject: a.payload.subject },
-          });
-        }
-
-        if (a.type === "send_email") {
-          onSendEmail?.(emailId);
-
-          pushLocalLog({
-            source: "ui",
-            action: "send_email_executed",
-            email_id: emailId,
-          });
-        }
-
-        if (a.type === "move_email") {
-          const destination = a.payload.destination;
-          onMoveEmail?.(emailId, destination);
-
-          pushLocalLog({
-            source: "ui",
-            action: `move_email_executed:${destination}`,
-            email_id: emailId,
-          });
-        }
-
-        if (a.type === "clarify" && !hasMove) {
-          setClarify(a.payload.question);
-
-          pushLocalLog({
-            source: "ui",
-            action: "clarify_rendered",
-            email_id: emailId,
-            details: { question: a.payload.question },
-          });
-        }
-      }
+      executeActions(data.actions);
 
       // Append assistant summary turn for multi-turn
       const assistantSummary = (() => {
