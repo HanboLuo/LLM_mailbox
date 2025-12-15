@@ -105,6 +105,34 @@ def _normalize_v14(
                 "payload": {"question": p.get("question", "Could you clarify?")},
             })
 
+        elif t in ("delete", "delete_email", "remove", "remove_email"):
+            normalized_actions.append({
+                "type": "move_email",
+                "payload": {
+                    "email_id": p.get("email_id") or email_id,
+                    "destination": "trash",
+                },
+            })
+
+        elif t in ("archive", "archive_email"):
+            normalized_actions.append({
+                "type": "move_email",
+                "payload": {
+                    "email_id": p.get("email_id") or email_id,
+                    "destination": "archive",
+                },
+            })
+
+        elif t in ("spam", "mark_spam", "report_spam"):
+            normalized_actions.append({
+                "type": "move_email",
+                "payload": {
+                    "email_id": p.get("email_id") or email_id,
+                    "destination": "spam",
+                },
+            })
+
+
     if not normalized_actions:
         normalized_actions = [{
             "type": "clarify",
