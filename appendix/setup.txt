@@ -12,3 +12,10 @@ npm run dev
 
 
 https://github.com/HanboLuo/LLM_mailbox
+
+
+# experiment
+$env:MAILBOX_PROMPT_POLICY="C2"
+$env:MAILBOX_LOG_REASONING="1"
+$env:MAILBOX_HIDE_REASONING="0"
+$env:MAILBOX_SANITIZE_LEVEL="comments"
