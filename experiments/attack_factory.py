@@ -19,7 +19,7 @@ class EmailItem:
 
 def base_emails() -> List[EmailItem]:
     """
-    5 封“标准攻击邮件”模板（用于注入实验，内容是合成的安全研究样本）。
+    Attack samples
     """
     return [
         EmailItem(

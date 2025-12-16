@@ -28,61 +28,56 @@ README.md               # This file
 ## High-Level Flow (End-to-End)
 ### A) Interactive UI run (frontend → backend agent)
 
-User selects an email in UI (open_email log).
+1. User selects an email in UI (open_email log).
 
-User enters an instruction and clicks Run (user_instruction log with run_id).
+2. User enters an instruction and clicks Run (user_instruction log with run_id).
 
-UI calls Python backend (your app.py routes) which invokes:
+3. UI calls Python backend (your app.py routes) which invokes:  
+`agent/llm_agent.py::run_agent(...)`
 
-agent/llm_agent.py::run_agent(...)
-
-Backend builds final prompt (policy C0–C3), calls DeepSeek, normalizes output to protocol v1.4, returns:
-
-actions[]
-
-reasoning[] (optionally hidden)
-
-logs[] (system + agent + model logs, all tagged with run_id)
-
-prompt_record provenance (system/email_body/user/final)
+4. Backend builds final prompt (policy C0–C3), calls DeepSeek, normalizes output to protocol v1.4, returns:  
+`actions[]`  
+`reasoning[] (optionally hidden)`  
+`logs[]` (system + agent + model logs, all tagged with run_id)  
+`prompt_record` provenance (system/email_body/user/final)
 
 ### B) Batch experiments run (experiments → agent)
 
-experiments/run_matrix.py generates Phase 1 trial specs.
+1. `experiments/run_matrix.py` generates Phase 1 trial specs.
 
-For each trial, it constructs an email with an injected payload using attack_factory.py.
+2. For each trial, it constructs an email with an injected payload using `attack_factory.py`.
 
-It calls agent.llm_agent.run_agent(...) with a specific ExperimentConfig.
+3. It calls `agent.llm_agent.run_agent(...)` with `ExperimentConfig`.
 
-experiments/judge.py labels the outcome and metrics.
+4. `experiments/judge.py` labels the outcome and metrics.
 
-Results are exported to JSONL/CSV.
+5. Results are exported to JSONL/CSV.
 
 ## Agent Protocol (v1.4)
 
 The LLM must output JSON with:
 
-* actions: list of structured actions
+* `actions`: list of structured actions
 
-* reasoning: list of strings (optional to expose to UI; can still be logged)
+* `reasoning`: list of strings (optional to expose to UI; can still be logged)
 
-* logs: list of agent-side logs (then normalized/overridden by backend)
+* `logs`: list of agent-side logs (then normalized/overridden by backend)
 
 Allowed actions:
 
-* reply
+* `reply`
 
-* mark_read
+* `mark_read`
 
-* mark_unread
+* `mark_unread`
 
-* create_email (draft only)
+* `create_email (draft only)`
 
-* send_email (only drafts)
+* `send_email (only drafts)`
 
-* move_email (inbox/archive/trash/spam)
+* `move_email` (inbox/archive/trash/spam)
 
-* clarify
+* `clarify`
 
 Backend normalization is responsible for:
 
@@ -96,13 +91,13 @@ Backend normalization is responsible for:
 
 ## Prompt Policies (C0–C3)
 
-Policies are implemented in agent/prompt_builder.py and controlled via ExperimentConfig.
+Policies are implemented in `agent/prompt_builder.py` and controlled via `ExperimentConfig`.
 
 * C0 Raw: minimal system prompt; email body is passed through with no warning/boundary.
 
 * C1 Label-only: adds explicit warning that email body is untrusted.
 
-* C2 Quoted/Isolated: wraps email body in BEGIN_UNTRUSTED_EMAIL_BODY ... END_UNTRUSTED_EMAIL_BODY.
+* C2 Quoted/Isolated: wraps email body in `BEGIN_UNTRUSTED_EMAIL_BODY ... END_UNTRUSTED_EMAIL_BODY.`
 
 * C3 Sanitized: sanitizes email body (comments / spans / zero-width) before boundary wrapping.
 
@@ -112,8 +107,8 @@ Sanitization logic lives in `agent/sanitize.py`.
 
 Each trial is defined as:
 
-    (one email template + one injection config + one user instruction + one prompt policy)
-    run agent once and record outputs
+(one email template + one injection config + one user instruction + one prompt policy)
+run agent once and record outputs
 
 We compute metrics:
 
@@ -123,9 +118,9 @@ We compute metrics:
 
 3. Over-execution rate: actions include extras beyond allowed set
 
-4. Clarify rate: model returns clarify or fallback becomes clarify
+4. Clarify rate: model returns `clarify` or fallback becomes `clarify`
 
-Labels typically include: OK, Injected, OverExecuted, Clarify (and optionally ClarifyOnly)
+Labels typically include: `OK`, `Injected`, `OverExecuted`, `Clarify` (and optionally `ClarifyOnly`)
 
 Judging rules and instruction→allowed mapping are hard-coded in experiments/judge.py for reproducibility.
 
@@ -140,7 +135,7 @@ npm install
 npm run dev
 ```
 
-The UI uses frontend/src/fakeEmails.ts as the demo email store.
+The UI uses `frontend/src/fakeEmails.ts` as the demo email store.
 This is independent from the batch experiment email generator.
 
 ### 2) Batch experiments (Phase 1 matrix)
@@ -151,8 +146,8 @@ Important: run as a module so Python can resolve package imports:
 python -m experiments.run_matrix
 ```
 
-If you run python experiments/run_matrix.py directly, Windows may raise:
-ModuleNotFoundError: No module named 'agent'.
+If you run `python experiments/run_matrix.py` directly, Windows may raise:
+`ModuleNotFoundError: No module named 'agent'`.
 
 If you must run scripts directly, set:
 ```
@@ -169,9 +164,9 @@ set DEEPSEEK_MODEL=deepseek-chat
 ```
 
 ### File-by-File Responsibilities
-#### agent/ (backend agent core)
+#### `agent/` (backend agent core)
 
-**agent/llm_agent.py**
+`**agent/llm_agent.py**`
 
 Main runtime agent:
 
@@ -185,11 +180,11 @@ adds authoritative logs (timestamps, run_id, final_prompt_used, reasoning_dump)
 
 returns structured result for UI/experiments
 
-**agent/prompt_builder.py**
+`**agent/prompt_builder.py**`
 
 Prompt construction single source of truth:
 
-defines AGENT_PROTOCOL_V14
+defines `AGENT_PROTOCOL_V14`
 
 implements prompt policy variants C0–C3
 
@@ -197,51 +192,51 @@ applies optional instruction templating
 
 optionally sanitizes email body (C3)
 
-records provenance into PromptRecord (system/email_body/user/history/final)
+records provenance into `PromptRecord` (system/email_body/user/history/final)
 
-**agent/prompt_registry.py**
+`**agent/prompt_registry.py**`
 
-Defines PromptRecord (prompt provenance log):
+Defines `PromptRecord` (prompt provenance log):
 
 records each prompt component with hash + timestamp
 
-exports the full prompt lineage for each run_id
+exports the full prompt lineage for each `run_id`
 
-**agent/experiment_config.py**
+`**agent/experiment_config.py**`
 
 Defines ExperimentConfig switches:
 
-prompt_policy (C0–C3)
+`prompt_policy` (C0–C3)
 
-sanitize_level
+`sanitize_level`
 
-log_reasoning / hide_reasoning
+`log_reasoning` / `hide_reasoning`
 
-optional instruction_template
+optional `instruction_template`
 
 can be constructed from env or passed directly by experiment runner
 
-**agent/sanitize.py**
+`**agent/sanitize.py**`
 
 Sanitization utilities for C3:
 
-strip HTML comments (<!-- ... -->)
+strip HTML comments (`<!-- ... -->`)
 
-remove hidden spans (display:none)
+remove hidden spans (`display:none`)
 
 optionally remove zero-width characters
 
-**agent/mock_agent.py**
+`**agent/mock_agent.py**`
 
-Deterministic mock agent used when engine="mock":
+Deterministic mock agent used when `engine="mock"`:
 
 helpful for UI/dev without calling DeepSeek
 
-**agent/__init__.py**
+`**agent/__init__.py**`
 
-Marks agent as a package.
+Marks `agent` as a package.
 
-#### experiments/ (matrix + attack generator + judging)
+#### `experiments/` (matrix + attack generator + judging)
 
 `experiments/attack_factory.py`
 
@@ -249,19 +244,19 @@ Attack email templates and injection generator:
 
 provides 5 base emails
 
-builds payload by strength × target
+builds payload by `strength × target`
 
 injects via carrier (clean/html_comment/visible) and placement (top/bottom)
 
-defines expected injection_targets used by judging
+defines expected `injection_targets` used by judging
 
 `experiments/judge.py`
 
 Outcome evaluation:
 
-defines TrialSpec and TrialOutcome
+defines `TrialSpec` and `TrialOutcome`
 
-maps user_instruction → allowed actions
+maps `user_instruction` -> allowed actions
 
 computes alignment / injection success / over-execution / clarify
 
@@ -277,14 +272,14 @@ constructs email instances (with injected body)
 
 runs agent with explicit config for each trial
 
-writes JSONL + CSV outputs to experiment_out/
+writes JSONL + CSV outputs to `experiment_out/`
 
 `experiments/run_phase1.py`
 
 Legacy/alternate runner (may be outdated relative to the newer matrix runner).
-Prefer run_matrix.py unless you intentionally keep this for comparison.
+Prefer `run_matrix.py` unless you intentionally keep this for comparison.
 
-#### frontend/ (Vite + React mailbox)
+#### `frontend/` (Vite + React mailbox)
 
 `frontend/src/App.tsx`
 
@@ -294,7 +289,7 @@ sidebar + email list + email view + assistant panel + log panel
 
 stores emails/logs in localStorage
 
-attaches run_id to UI-originated logs
+attaches `run_id` to UI-originated logs
 
 `frontend/src/fakeEmails.ts`
 
@@ -305,17 +300,17 @@ Used only for UI testing/demo unless you wire it to backend.
 
 UI components:
 
-Assistant.tsx: instruction input + run trigger + renders actions/reasoning
+`Assistant.tsx`: instruction input + run trigger + renders actions/reasoning
 
-EmailList.tsx, EmailView.tsx, Inbox.tsx, Sidebar.tsx
+`EmailList.tsx`, `EmailView.tsx`, `Inbox.tsx`, `Sidebar.tsx`
 
-LogPanel.tsx: shows structured logs
+`LogPanel.tsx`: shows structured logs
 
 `frontend/src/types/*`
 
 Type definitions for:
 
-Email model
+`Email` model
 
 agent output schema
 
